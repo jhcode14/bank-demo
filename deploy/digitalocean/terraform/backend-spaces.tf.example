@@ -1,0 +1,27 @@
+# Remote state on DigitalOcean Spaces (S3-compatible).
+#
+# The module keeps local state by default so `terraform apply` works out of the
+# box. To share state between your laptop and CI, copy this file to backend.tf
+# (the deploy-digitalocean workflow does exactly that when provisioning is
+# enabled) and initialize with the bucket details:
+#
+#   cp backend-spaces.tf.example backend.tf
+#   export AWS_ACCESS_KEY_ID=<spaces key>
+#   export AWS_SECRET_ACCESS_KEY=<spaces secret>
+#   terraform init \
+#     -backend-config="bucket=<space name>" \
+#     -backend-config="key=bank-of-anthos/terraform.tfstate" \
+#     -backend-config="endpoints={s3=\"https://<region>.digitaloceanspaces.com\"}"
+#
+# Spaces does not implement DynamoDB-style locking, so avoid concurrent applies.
+terraform {
+  backend "s3" {
+    region = "us-east-1" # ignored by Spaces, but required by the backend
+
+    skip_credentials_validation = true
+    skip_requesting_account_id  = true
+    skip_metadata_api_check     = true
+    skip_region_validation      = true
+    skip_s3_checksum            = true
+  }
+}
