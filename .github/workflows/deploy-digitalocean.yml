@@ -24,7 +24,7 @@ name: deploy-digitalocean
 on:
   workflow_dispatch:
     inputs:
-      cluster_name:
+      cluster_name: bank-of-anthos
         description: DOKS cluster name
         required: true
         default: bank-of-anthos

@@ -6,4 +6,4 @@ node_size    = "s-2vcpu-4gb"
 node_count   = 3
 
 create_container_registry = true
-# container_registry_name   = "my-unique-registry"
+container_registry_name   = "bank-of-anthos"
