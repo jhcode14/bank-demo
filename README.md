@@ -120,8 +120,64 @@ The following button opens up an interactive tutorial showing how to deploy Bank
 
    Deleting the cluster may take a few minutes.
 
+## Quickstart (DigitalOcean DOKS)
+
+This fork also ships a GCP-free deployment path for [DigitalOcean Kubernetes (DOKS)](https://www.digitalocean.com/products/kubernetes) under [`deploy/digitalocean/`](/deploy/digitalocean). It uses the same services and in-cluster PostgreSQL, with Cloud Trace and Stackdriver metrics disabled and no Workload Identity or service mesh. See the [DigitalOcean deployment guide](/deploy/digitalocean/README.md) for the full flow, including pushing images to DigitalOcean Container Registry (DOCR) and the CI/CD workflow.
+
+1. Ensure you have the following requirements:
+   - A [DigitalOcean account](https://cloud.digitalocean.com/) and an API token with read/write scope.
+   - Shell environment with `doctl`, `terraform`, `git`, and `kubectl`.
+
+2. Clone this repository and provision a DOKS cluster with the included Terraform module.
+
+   ```sh
+   export DIGITALOCEAN_ACCESS_TOKEN=<DO_API_TOKEN>
+   export TF_VAR_do_token=${DIGITALOCEAN_ACCESS_TOKEN}
+   cd deploy/digitalocean/terraform
+   terraform init
+   terraform apply
+   ```
+
+   Configurable inputs include `cluster_name`, `region`, `node_size`, and `node_count`.
+
+3. Get credentials for the cluster.
+
+   ```sh
+   doctl kubernetes cluster kubeconfig save "$(terraform output -raw cluster_name)"
+   kubectl get nodes
+   ```
+
+4. Deploy Bank of Anthos using the DOKS manifests.
+
+   ```sh
+   cd ../../..
+   kubectl apply -f ./extras/jwt/jwt-secret.yaml
+   kubectl apply -f ./deploy/digitalocean/kubernetes-manifests
+   kubectl get pods
+   ```
+
+   If the upstream images are not pullable in your environment, build and push them to DOCR first and retarget the image refs — see the [DigitalOcean deployment guide](/deploy/digitalocean/README.md).
+
+5. Access the web frontend using the external IP of the DigitalOcean Load Balancer.
+
+   ```sh
+   kubectl get service frontend | awk '{print $4}'
+   ```
+
+   Provisioning the load balancer takes a couple of minutes; until then the external IP stays `<pending>`.
+
+6. Once you are done with it, destroy the cluster.
+
+   ```sh
+   kubectl delete -f ./deploy/digitalocean/kubernetes-manifests
+   cd deploy/digitalocean/terraform && terraform destroy
+   ```
+
+   Delete the manifests first so the DigitalOcean Load Balancer and volumes created for the app are released.
+
 ## Additional deployment options
 
+- **DigitalOcean Kubernetes (DOKS)**: [See these instructions](/deploy/digitalocean/README.md) to deploy without any GCP dependencies, including a Terraform module for the cluster and a GitHub Actions pipeline that builds to DOCR.
 - **Workload Identity**: [See these instructions.](/docs/workload-identity.md)
 - **Cloud SQL**: [See these instructions](/extras/cloudsql) to replace the in-cluster databases with hosted Google Cloud SQL.
 - **Multi Cluster with Cloud SQL**: [See these instructions](/extras/cloudsql-multicluster) to replicate the app across two regions using GKE, Multi Cluster Ingress, and Google Cloud SQL.
@@ -135,6 +191,7 @@ The following button opens up an interactive tutorial showing how to deploy Bank
 
 - [Development](/docs/development.md) to learn how to run and develop this app locally.
 - [Environments](/docs/environments.md) to learn how to deploy on non-GKE clusters.
+- [DigitalOcean (DOKS)](/deploy/digitalocean/README.md) to learn how to deploy to DigitalOcean Kubernetes without GCP dependencies.
 - [Workload Identity](/docs/workload-identity.md) to learn how to set-up Workload Identity.
 - [CI/CD pipeline](/docs/ci-cd-pipeline.md) to learn details about and how to set-up the CI/CD pipeline.
 - [Troubleshooting](/docs/troubleshooting.md) to learn how to resolve common problems.
