@@ -52,8 +52,20 @@ Actions it comes from the `DIGITALOCEAN_ACCESS_TOKEN` secret.
 Configurable inputs: `cluster_name`, `region`, `kubernetes_version`,
 `node_size`, `node_count` (or `auto_scale` + `min_nodes`/`max_nodes`), `tags`,
 and `create_container_registry` / `container_registry_name` /
-`container_registry_tier` for an optional DOCR registry (DigitalOcean allows one
-registry per account, so leave it `false` if you already have one).
+`container_registry_region` / `container_registry_tier` for an optional DOCR
+registry (DigitalOcean allows one registry per account, so leave it `false` if
+you already have one). DOCR only exists in `nyc3`, `sfo3`, `ams3`, `fra1`,
+`sgp1`, `blr1` and `syd1`, so its region is a separate variable from the cluster
+region — a `nyc1` cluster pairs with an `nyc3` registry.
+
+If the cluster or registry already exists (for example created by an earlier
+local apply whose state is not in the remote backend), import it instead of
+letting apply fail with `a cluster with this name already exists`:
+
+```bash
+terraform import digitalocean_kubernetes_cluster.bank_of_anthos "$(doctl kubernetes cluster get <cluster-name> --format ID --no-header)"
+terraform import 'digitalocean_container_registry.bank_of_anthos[0]' <registry-name>
+```
 
 Outputs: `cluster_id`, `cluster_name`, `cluster_endpoint`, `kubernetes_version`,
 `kubeconfig` (sensitive) and `container_registry_endpoint`.
