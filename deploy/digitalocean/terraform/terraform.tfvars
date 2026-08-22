@@ -1,5 +1,3 @@
-# Copy to terraform.tfvars and edit, or export TF_VAR_do_token instead.
-do_token     = "{{ secrets.TF_VAR_DO_TOKEN }}"
 cluster_name = "bank-of-anthos"
 region       = "nyc1"
 node_size    = "s-2vcpu-4gb"

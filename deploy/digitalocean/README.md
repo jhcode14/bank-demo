@@ -39,10 +39,15 @@ mount) is identical to the upstream manifests.
 
 ```bash
 cd deploy/digitalocean/terraform
-cp terraform.tfvars.example terraform.tfvars   # or: export TF_VAR_do_token=$DIGITALOCEAN_ACCESS_TOKEN
+export TF_VAR_do_token=$DIGITALOCEAN_ACCESS_TOKEN
 terraform init
 terraform apply
 ```
+
+`terraform.tfvars` holds the non-secret settings (cluster name, region, node
+size/count, registry) and is committed on purpose so local runs and CI agree.
+The API token is never stored there — pass it via `TF_VAR_do_token`; in GitHub
+Actions it comes from the `DIGITALOCEAN_ACCESS_TOKEN` secret.
 
 Configurable inputs: `cluster_name`, `region`, `kubernetes_version`,
 `node_size`, `node_count` (or `auto_scale` + `min_nodes`/`max_nodes`), `tags`,
@@ -142,7 +147,24 @@ Provisioning the load balancer takes a couple of minutes; until then
 `EXTERNAL-IP` stays `<pending>`. Log in with the demo credentials from the
 `demo-data-config` ConfigMap (`testuser` / `bankofanthos`).
 
-## 5. CI/CD (GitHub Actions)
+## 5. Remote Terraform state (needed for CI provisioning)
+
+State is local by default. To share it between your machine and GitHub Actions,
+use a DigitalOcean Space (S3-compatible):
+
+```bash
+cd deploy/digitalocean/terraform
+cp backend-spaces.tf.example backend.tf
+export AWS_ACCESS_KEY_ID=<spaces key> AWS_SECRET_ACCESS_KEY=<spaces secret>
+terraform init -migrate-state \
+  -backend-config="bucket=<space name>" \
+  -backend-config="key=bank-of-anthos/terraform.tfstate" \
+  -backend-config='endpoints={s3="https://nyc3.digitaloceanspaces.com"}'
+```
+
+Spaces has no DynamoDB-style locking, so avoid concurrent applies.
+
+## 6. CI/CD (GitHub Actions)
 
 [`.github/workflows/deploy-digitalocean.yml`](../../.github/workflows/deploy-digitalocean.yml)
 is a `workflow_dispatch` pipeline that replaces the Cloud Build flow. It
@@ -152,7 +174,23 @@ under `src/**`, Jib for the Java ledger services), pushes to DOCR, runs
 `doctl kubernetes cluster kubeconfig save`, creates the `jwt-key` secret if it is
 missing, rewrites the image refs to the freshly pushed tags, and applies
 `deploy/digitalocean/kubernetes-manifests/`. Inputs: `cluster_name`,
-`registry_name`, `namespace`. No skaffold, `gcloud` or fleet memberships.
+`registry_name`, `namespace`, `provision_infra`. No skaffold, `gcloud` or fleet
+memberships.
+
+With `provision_infra=true` an extra `terraform` job runs the module above
+before deploying, taking the token from `DIGITALOCEAN_ACCESS_TOKEN` and the
+state backend from these additional secrets:
+
+| Secret | Value |
+| --- | --- |
+| `SPACES_BUCKET` | Space holding the state file |
+| `SPACES_ENDPOINT` | e.g. `https://nyc3.digitaloceanspaces.com` |
+| `SPACES_ACCESS_KEY_ID` / `SPACES_SECRET_ACCESS_KEY` | Spaces access keys |
+
+The job fails fast if they are missing, because with empty state Terraform would
+try to create a second cluster on every run. Left at the default
+`provision_infra=false`, the workflow only builds and deploys against an
+existing cluster.
 
 ## Notes and limitations
 

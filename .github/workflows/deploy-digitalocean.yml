@@ -19,6 +19,13 @@
 # Required repository secret: DIGITALOCEAN_ACCESS_TOKEN (read/write API token).
 # Configure the cluster name / registry / namespace via the workflow inputs or
 # the env block below.
+#
+# Set provision_infra=true to run the Terraform module in
+# deploy/digitalocean/terraform first (cluster + optional DOCR). That path also
+# needs remote state on DigitalOcean Spaces, otherwise every run starts from
+# empty state and tries to recreate the cluster; provide the SPACES_BUCKET,
+# SPACES_ACCESS_KEY_ID, SPACES_SECRET_ACCESS_KEY and SPACES_ENDPOINT secrets
+# (endpoint e.g. https://nyc3.digitaloceanspaces.com).
 name: deploy-digitalocean
 
 on:
@@ -36,6 +43,11 @@ on:
         description: Kubernetes namespace to deploy into
         required: false
         default: default
+      provision_infra:
+        description: Run terraform apply for the DOKS cluster before deploying
+        required: false
+        type: boolean
+        default: false
 
 env:
   CLUSTER_NAME: ${{ github.event.inputs.cluster_name || 'bank-of-anthos' }}
@@ -44,7 +56,51 @@ env:
   MANIFESTS: deploy/digitalocean/kubernetes-manifests
 
 jobs:
+  # Optional: provision the DOKS cluster (and DOCR) from
+  # deploy/digitalocean/terraform. Skipped unless provision_infra is true.
+  terraform:
+    if: ${{ github.event.inputs.provision_infra == 'true' }}
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: deploy/digitalocean/terraform
+    env:
+      TF_IN_AUTOMATION: "1"
+      TF_INPUT: "0"
+      TF_VAR_do_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+      # Spaces credentials for the S3-compatible state backend.
+      AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_ACCESS_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.8
+
+      - name: Enable Spaces remote state
+        run: |
+          set -euo pipefail
+          test -n "${{ secrets.SPACES_BUCKET }}" || {
+            echo "::error::provision_infra requires the SPACES_BUCKET, SPACES_ENDPOINT, SPACES_ACCESS_KEY_ID and SPACES_SECRET_ACCESS_KEY secrets so state survives between runs"
+            exit 1
+          }
+          cp backend-spaces.tf.example backend.tf
+          terraform init \
+            -backend-config="bucket=${{ secrets.SPACES_BUCKET }}" \
+            -backend-config="key=${{ github.event.inputs.cluster_name }}/terraform.tfstate" \
+            -backend-config="endpoints={s3=\"${{ secrets.SPACES_ENDPOINT }}\"}"
+
+      - name: Apply
+        run: |
+          terraform apply -auto-approve \
+            -var="cluster_name=${CLUSTER_NAME}" \
+            -var="container_registry_name=${REGISTRY_NAME}"
+
   deploy:
+    needs: [terraform]
+    # Runs whether or not the terraform job was skipped, but not if it failed.
+    if: ${{ always() && needs.terraform.result != 'failure' && needs.terraform.result != 'cancelled' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
