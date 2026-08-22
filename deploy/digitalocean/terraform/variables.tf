@@ -70,6 +70,12 @@ variable "container_registry_name" {
   default     = "bank-of-anthos"
 }
 
+variable "container_registry_region" {
+  description = "Region slug for the DOCR registry. DOCR is only available in a subset of regions (nyc3, sfo3, ams3, fra1, sgp1, blr1, syd1), which may differ from the cluster region."
+  type        = string
+  default     = "nyc3"
+}
+
 variable "container_registry_tier" {
   description = "DOCR subscription tier: starter, basic, or professional."
   type        = string

@@ -26,5 +26,5 @@ resource "digitalocean_container_registry" "bank_of_anthos" {
   count                  = var.create_container_registry ? 1 : 0
   name                   = var.container_registry_name
   subscription_tier_slug = var.container_registry_tier
-  region                 = var.region
+  region                 = var.container_registry_region
 }
