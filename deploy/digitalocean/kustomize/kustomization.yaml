@@ -1,0 +1,57 @@
+# Optional overlay: rewrites the upstream GCP Artifact Registry image refs to a
+# DigitalOcean Container Registry (DOCR). Edit REGISTRY below (or run
+# `kustomize edit set image ...`) and deploy with:
+#
+#   kustomize build --load-restrictor LoadRestrictionsNone \
+#     deploy/digitalocean/kustomize | kubectl apply -f -
+#
+# (the load restrictor flag is needed because the resources live in the sibling
+# kubernetes-manifests/ directory, which stays directly applyable with kubectl)
+#
+# Plain `kubectl apply -f deploy/digitalocean/kubernetes-manifests/` works too
+# when the upstream public images are used as-is.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../kubernetes-manifests/accounts-db.yaml
+  - ../kubernetes-manifests/balance-reader.yaml
+  - ../kubernetes-manifests/config.yaml
+  - ../kubernetes-manifests/contacts.yaml
+  - ../kubernetes-manifests/frontend.yaml
+  - ../kubernetes-manifests/ledger-db.yaml
+  - ../kubernetes-manifests/ledger-writer.yaml
+  - ../kubernetes-manifests/loadgenerator.yaml
+  - ../kubernetes-manifests/transaction-history.yaml
+  - ../kubernetes-manifests/userservice.yaml
+
+# Replace <REGISTRY> with e.g. registry.digitalocean.com/my-registry and
+# newTag with the tag your CI pushed.
+images:
+  - name: us-central1-docker.pkg.dev/bank-of-anthos-ci/bank-of-anthos/accounts-db
+    newName: <REGISTRY>/accounts-db
+    newTag: v0.6.10
+  - name: us-central1-docker.pkg.dev/bank-of-anthos-ci/bank-of-anthos/balancereader
+    newName: <REGISTRY>/balancereader
+    newTag: v0.6.10
+  - name: us-central1-docker.pkg.dev/bank-of-anthos-ci/bank-of-anthos/contacts
+    newName: <REGISTRY>/contacts
+    newTag: v0.6.10
+  - name: us-central1-docker.pkg.dev/bank-of-anthos-ci/bank-of-anthos/frontend
+    newName: <REGISTRY>/frontend
+    newTag: v0.6.10
+  - name: us-central1-docker.pkg.dev/bank-of-anthos-ci/bank-of-anthos/ledger-db
+    newName: <REGISTRY>/ledger-db
+    newTag: v0.6.10
+  - name: us-central1-docker.pkg.dev/bank-of-anthos-ci/bank-of-anthos/ledgerwriter
+    newName: <REGISTRY>/ledgerwriter
+    newTag: v0.6.10
+  - name: us-central1-docker.pkg.dev/bank-of-anthos-ci/bank-of-anthos/loadgenerator
+    newName: <REGISTRY>/loadgenerator
+    newTag: v0.6.10
+  - name: us-central1-docker.pkg.dev/bank-of-anthos-ci/bank-of-anthos/transactionhistory
+    newName: <REGISTRY>/transactionhistory
+    newTag: v0.6.10
+  - name: us-central1-docker.pkg.dev/bank-of-anthos-ci/bank-of-anthos/userservice
+    newName: <REGISTRY>/userservice
+    newTag: v0.6.10

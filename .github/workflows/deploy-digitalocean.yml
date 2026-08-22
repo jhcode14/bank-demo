@@ -1,0 +1,141 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Builds the Bank of Anthos images, pushes them to DigitalOcean Container
+# Registry and deploys deploy/digitalocean/kubernetes-manifests/ to a DOKS
+# cluster. No gcloud, skaffold or fleet memberships involved.
+#
+# Required repository secret: DIGITALOCEAN_ACCESS_TOKEN (read/write API token).
+# Configure the cluster name / registry / namespace via the workflow inputs or
+# the env block below.
+name: deploy-digitalocean
+
+on:
+  workflow_dispatch:
+    inputs:
+      cluster_name:
+        description: DOKS cluster name
+        required: true
+        default: bank-of-anthos
+      registry_name:
+        description: DOCR registry name (registry.digitalocean.com/<name>)
+        required: true
+        default: bank-of-anthos
+      namespace:
+        description: Kubernetes namespace to deploy into
+        required: false
+        default: default
+
+env:
+  CLUSTER_NAME: ${{ github.event.inputs.cluster_name || 'bank-of-anthos' }}
+  REGISTRY_NAME: ${{ github.event.inputs.registry_name || 'bank-of-anthos' }}
+  NAMESPACE: ${{ github.event.inputs.namespace || 'default' }}
+  MANIFESTS: deploy/digitalocean/kubernetes-manifests
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install doctl
+        uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+
+      - name: Log in to DOCR
+        run: doctl registry login --expiry-seconds 3600
+
+      - name: Compute image tag
+        run: echo "IMAGE_TAG=$(git rev-parse --short HEAD)" >> "$GITHUB_ENV"
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+
+      - name: Build and push Dockerfile-based services
+        env:
+          REGISTRY: registry.digitalocean.com/${{ env.REGISTRY_NAME }}
+        run: |
+          set -euo pipefail
+          build() {
+            local name="$1" context="$2"
+            docker build -t "${REGISTRY}/${name}:${IMAGE_TAG}" "${context}"
+            docker push "${REGISTRY}/${name}:${IMAGE_TAG}"
+          }
+          build accounts-db src/accounts/accounts-db
+          build contacts src/accounts/contacts
+          build userservice src/accounts/userservice
+          build frontend src/frontend
+          build ledger-db src/ledger/ledger-db
+          build loadgenerator src/loadgenerator
+
+      - name: Build and push Java ledger services (Jib)
+        env:
+          REGISTRY: registry.digitalocean.com/${{ env.REGISTRY_NAME }}
+        run: |
+          set -euo pipefail
+          jib() {
+            local module="$1" name="$2"
+            ./mvnw --batch-mode --no-transfer-progress -f "src/ledger/${module}/pom.xml" \
+              compile jib:build \
+              -Dimage="${REGISTRY}/${name}:${IMAGE_TAG}"
+          }
+          jib balancereader balancereader
+          jib ledgerwriter ledgerwriter
+          jib transactionhistory transactionhistory
+
+      - name: Save kubeconfig
+        run: doctl kubernetes cluster kubeconfig save "${CLUSTER_NAME}"
+
+      - name: Grant the cluster pull access to DOCR
+        run: doctl kubernetes cluster registry add "${CLUSTER_NAME}"
+
+      - name: Create JWT signing key secret if missing
+        run: |
+          set -euo pipefail
+          kubectl create namespace "${NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f -
+          if ! kubectl get secret jwt-key -n "${NAMESPACE}" >/dev/null 2>&1; then
+            openssl genrsa -out jwtRS256.key 4096
+            openssl rsa -in jwtRS256.key -outform PEM -pubout -out jwtRS256.key.pub
+            kubectl create secret generic jwt-key -n "${NAMESPACE}" \
+              --from-file=jwtRS256.key --from-file=jwtRS256.key.pub
+            rm -f jwtRS256.key jwtRS256.key.pub
+          fi
+
+      - name: Point manifests at the pushed images
+        env:
+          REGISTRY: registry.digitalocean.com/${{ env.REGISTRY_NAME }}
+        run: |
+          set -euo pipefail
+          # Replace the upstream Artifact Registry refs (including any @sha256 digest)
+          # with the images this run pushed to DOCR.
+          sed -i -E \
+            "s|image: us-central1-docker\.pkg\.dev/bank-of-anthos-ci/bank-of-anthos/([^:@[:space:]]+)(:[^@[:space:]]+)?(@sha256:[a-f0-9]+)?|image: ${REGISTRY}/\1:${IMAGE_TAG}|" \
+            "${MANIFESTS}"/*.yaml
+          grep -h 'image:' "${MANIFESTS}"/*.yaml
+
+      - name: Validate manifests
+        run: kubectl apply --dry-run=client -f "${MANIFESTS}/"
+
+      - name: Deploy
+        run: |
+          kubectl apply -n "${NAMESPACE}" -f "${MANIFESTS}/"
+          kubectl rollout status -n "${NAMESPACE}" deployment/frontend --timeout=10m
+
+      - name: Show frontend LoadBalancer IP
+        run: kubectl get service frontend -n "${NAMESPACE}" -o wide
