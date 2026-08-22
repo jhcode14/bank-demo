@@ -1,12 +1,9 @@
-# Reference for the committed terraform.tfvars. Non-secret settings only:
-# pass the API token via `export TF_VAR_do_token=dop_v1_...` (GitHub Actions
-# takes it from the DIGITALOCEAN_ACCESS_TOKEN secret).
+# Copy to terraform.tfvars and edit, or export TF_VAR_do_token instead.
+do_token     = "dop_v1_replace_me"
 cluster_name = "bank-of-anthos"
 region       = "nyc1"
 node_size    = "s-2vcpu-4gb"
 node_count   = 3
 
-# DOCR names are unique across all of DigitalOcean, and an account may have
-# only one registry.
 # create_container_registry = true
 # container_registry_name   = "my-unique-registry"
