@@ -111,7 +111,20 @@ done
 
 # Let the cluster pull from DOCR
 doctl kubernetes cluster registry add <cluster-name>
+
+# That integration only patches each namespace's *default* ServiceAccount, but
+# most services run as bank-of-anthos, so give that SA the pull secret too
+kubectl patch serviceaccount bank-of-anthos \
+  -p "{\"imagePullSecrets\":[{\"name\":\"registry-<registry-name>\"}]}"
 ```
+
+Without that patch the pods sit in `ImagePullBackOff` and the rollout ends with
+`deployment "frontend" exceeded its progress deadline`. Pods already created
+before the patch need `kubectl rollout restart deployment,statefulset --all`,
+since `imagePullSecrets` are only resolved at pod creation.
+
+DOCR tiers also cap repository count: the app has nine images, so `basic`
+(5 repos) is not enough — use `professional`, or push fewer services.
 
 Retarget the manifests either with the kustomize overlay in
 [`kustomize/kustomization.yaml`](kustomize/kustomization.yaml) (replace
