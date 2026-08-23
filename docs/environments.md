@@ -10,6 +10,10 @@ Bank of Anthos was designed to work on any Kubernetes cluster and has no GCP-spe
 
 **If you want to turn off metrics/logs/traces export from a non-GKE cluster into Google Cloud Operations**: set `ENABLE_METRICS=false` and `ENABLE_TRACING=false` in each Deployment YAML. No further action is needed, and the Bank of Anthos services will not look for `GOOGLE_APPLICATION_CREDENTIALS` since they don't need to send any telemetry to GCP.
 
+### DigitalOcean DOKS Demo
+
+The current DOKS demo at [http://134.199.177.73/](http://134.199.177.73/) is exposed through its load balancer over HTTP only. HTTPS termination is intentionally deferred for this demo, so do not enter real credentials or sensitive data because traffic is not encrypted in transit. Before using this deployment for production traffic, configure DNS, a TLS certificate, a port 443 listener, and an HTTP-to-HTTPS redirect.
+
 **If you want to export metrics/logs/traces from a non-GKE cluster into Google Cloud Operations**:
 
 1. Create a Google Cloud project or navigate into one you've already created. Ensure you've created a Google Cloud Operations workspace for your project.
@@ -27,5 +31,4 @@ kubectl create secret generic pubsub-key --from-file=key.json=PATH-TO-KEY-FILE.j
 5. Update your Deployment YAMLs to mount in that secret as your `GOOGLE_APPLICATION_CREDENTIALS` env variable. [See this example](https://cloud.google.com/kubernetes-engine/docs/tutorials/authenticating-to-cloud-platform#importing_credentials_as_a_secret) for how to mount a secret as an env variable in a Pod.
 
 6. Deploy the app, where the `ENABLE_METRICS` and `ENABLE_TRACING` variables are both set to `true`.
-
 
