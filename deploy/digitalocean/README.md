@@ -113,9 +113,11 @@ done
 doctl kubernetes cluster registry add <cluster-name>
 
 # That integration only patches each namespace's *default* ServiceAccount, but
-# most services run as bank-of-anthos, so give that SA the pull secret too
+# most services run as bank-of-anthos, so give that SA the same pull secret
+# (DigitalOcean names the secret after the registry)
+secret=$(kubectl get serviceaccount default -o jsonpath='{.imagePullSecrets[0].name}')
 kubectl patch serviceaccount bank-of-anthos \
-  -p "{\"imagePullSecrets\":[{\"name\":\"registry-<registry-name>\"}]}"
+  -p "{\"imagePullSecrets\":[{\"name\":\"$secret\"}]}"
 ```
 
 Without that patch the pods sit in `ImagePullBackOff` and the rollout ends with
