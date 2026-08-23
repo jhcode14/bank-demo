@@ -190,10 +190,26 @@ jobs:
           set -euo pipefail
           doctl kubernetes cluster registry add "${CLUSTER_NAME}"
           # The DOKS integration only wires its pull secret into each namespace's
-          # default ServiceAccount, but most services run as bank-of-anthos.
-          secret="$(kubectl get secret -n "${NAMESPACE}" \
-            -o jsonpath='{range .items[?(@.type=="kubernetes.io/dockerconfigjson")]}{.metadata.name}{"\n"}{end}' \
-            | grep -m1 '^registry-')"
+          # default ServiceAccount, but most services run as bank-of-anthos. The
+          # secret is named after the registry, so read it off the default SA
+          # rather than guessing.
+          secret=""
+          for _ in $(seq 12); do
+            secret="$(kubectl get serviceaccount default -n "${NAMESPACE}" \
+              -o jsonpath='{.imagePullSecrets[0].name}')"
+            if [ -z "${secret}" ]; then
+              secret="$(kubectl get secret -n "${NAMESPACE}" \
+                -o jsonpath='{range .items[?(@.type=="kubernetes.io/dockerconfigjson")]}{.metadata.name}{"\n"}{end}' \
+                | head -1)"
+            fi
+            [ -n "${secret}" ] && break
+            sleep 5
+          done
+          test -n "${secret}" || {
+            echo "::error::no DOCR pull secret found in namespace ${NAMESPACE}"
+            exit 1
+          }
+          echo "using pull secret ${secret}"
           kubectl create serviceaccount bank-of-anthos -n "${NAMESPACE}" \
             --dry-run=client -o yaml | kubectl apply -f -
           kubectl patch serviceaccount bank-of-anthos -n "${NAMESPACE}" \
