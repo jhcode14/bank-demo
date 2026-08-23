@@ -225,7 +225,8 @@ jobs:
             -o jsonpath='{range .items[*]}{range .status.containerStatuses[*]}{.state.waiting.reason}{"\n"}{end}{end}' \
             | grep -c 'ImagePull\|ErrImagePull' || true)"
           if [ "${waiting}" -gt 0 ]; then
-            kubectl rollout restart -n "${NAMESPACE}" deployment,statefulset --all
+            kubectl get deployment,statefulset -n "${NAMESPACE}" -o name \
+              | xargs -r kubectl rollout restart -n "${NAMESPACE}"
           fi
           kubectl rollout status -n "${NAMESPACE}" deployment/frontend --timeout=10m
 
