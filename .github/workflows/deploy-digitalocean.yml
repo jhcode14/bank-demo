@@ -158,10 +158,7 @@ jobs:
       - name: Save kubeconfig
         run: doctl kubernetes cluster kubeconfig save "${CLUSTER_NAME}"
 
-      - name: Grant the cluster pull access to DOCR
-        run: doctl kubernetes cluster registry add "${CLUSTER_NAME}"
-
-      - name: Create JWT signing key secret if missing
+      - name: Create namespace and JWT signing key secret if missing
         run: |
           set -euo pipefail
           kubectl create namespace "${NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f -
@@ -188,10 +185,40 @@ jobs:
       - name: Validate manifests
         run: kubectl apply --dry-run=client -f "${MANIFESTS}/"
 
+      - name: Grant the cluster pull access to DOCR
+        run: |
+          set -euo pipefail
+          doctl kubernetes cluster registry add "${CLUSTER_NAME}"
+          # The DOKS integration only wires its pull secret into each namespace's
+          # default ServiceAccount, but most services run as bank-of-anthos.
+          secret="$(kubectl get secret -n "${NAMESPACE}" \
+            -o jsonpath='{range .items[?(@.type=="kubernetes.io/dockerconfigjson")]}{.metadata.name}{"\n"}{end}' \
+            | grep -m1 '^registry-')"
+          kubectl create serviceaccount bank-of-anthos -n "${NAMESPACE}" \
+            --dry-run=client -o yaml | kubectl apply -f -
+          kubectl patch serviceaccount bank-of-anthos -n "${NAMESPACE}" \
+            -p "{\"imagePullSecrets\":[{\"name\":\"${secret}\"}]}"
+
       - name: Deploy
         run: |
+          set -euo pipefail
           kubectl apply -n "${NAMESPACE}" -f "${MANIFESTS}/"
+          # Pods created before the pull secret was attached keep failing on their
+          # own; imagePullSecrets are only resolved when the pod is created.
+          waiting="$(kubectl get pods -n "${NAMESPACE}" \
+            -o jsonpath='{range .items[*]}{range .status.containerStatuses[*]}{.state.waiting.reason}{"\n"}{end}{end}' \
+            | grep -c 'ImagePull\|ErrImagePull' || true)"
+          if [ "${waiting}" -gt 0 ]; then
+            kubectl rollout restart -n "${NAMESPACE}" deployment,statefulset --all
+          fi
           kubectl rollout status -n "${NAMESPACE}" deployment/frontend --timeout=10m
 
       - name: Show frontend LoadBalancer IP
         run: kubectl get service frontend -n "${NAMESPACE}" -o wide
+
+      - name: Diagnostics
+        if: failure()
+        run: |
+          kubectl get pods -n "${NAMESPACE}" -o wide || true
+          kubectl get events -n "${NAMESPACE}" --sort-by=.lastTimestamp | tail -40 || true
+          kubectl describe pods -n "${NAMESPACE}" -l app=frontend || true
